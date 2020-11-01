@@ -1,0 +1,854 @@
+---
+title: "Code for credit fraud detection with data mining"
+subtitle: |
+  | By Hua-Wei Huang, 2020
+  | outputs are not displayed, please refer to the report
+
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+
+```{r}
+# Import library and dataset
+
+library(dplyr)
+library(VIM)
+library(tidyverse)
+library(ggplot2)
+library(mice)
+library(fBasics)
+library(Metrics)
+library(MASS)
+library(ISLR)
+library(leaps)
+library(glmnet)
+library(klaR)
+
+setwd("your own working directory")
+ori_train_data <- read.table("cs-training.csv", header = TRUE,
+                             sep = ",",row.names = 1)
+```
+
+```{r}
+
+# Rename columns 
+
+colnames(ori_train_data)[which(names(ori_train_data) == "SeriousDlqin2yrs")] <- "default"
+colnames(ori_train_data)[which(names(ori_train_data) == "MonthlyIncome")] <- "monthly_income"
+colnames(ori_train_data)[which(names(ori_train_data) == "NumberOfDependents")] <- "num_dependents"
+colnames(ori_train_data)[which(names(ori_train_data) == "RevolvingUtilizationOfUnsecuredLines")] <- "unsecured_lines"
+colnames(ori_train_data)[which(names(ori_train_data) == "NumberOfTime30.59DaysPastDueNotWorse")] <- "past_due_30"
+colnames(ori_train_data)[which(names(ori_train_data) == "NumberOfTime60.89DaysPastDueNotWorse")] <- "past_due_60"
+colnames(ori_train_data)[which(names(ori_train_data) == "DebtRatio")] <- "debt_ratio"
+colnames(ori_train_data)[which(names(ori_train_data) == "NumberOfOpenCreditLinesAndLoans")] <- "credit_lines"
+colnames(ori_train_data)[which(names(ori_train_data) == "NumberOfTimes90DaysLate")] <- "late_90"
+colnames(ori_train_data)[which(names(ori_train_data) == "NumberRealEstateLoansOrLines")] <- "real_estate"
+
+```
+
+
+# Exploratory data analysis
+
+reference: https://cran.r-project.org/web/packages/dlookr/vignettes/EDA.html
+```{r}
+
+# basic statistic summary
+round(basicStats(ori_train_data),3)
+
+# visualising missing patterns
+library(naniar)
+
+cols_missing <- ori_train_data[,c("monthly_income", "num_dependents")]
+vis_miss(cols_missing)
+
+# visualising correlation
+cor_ori_train <- cor(ori_train_data[,1:11])
+
+library(corrplot)
+corrplot(cor_ori_train, method="circle")
+
+# visualising normality
+library(dlookr)
+plot_normality(ori_train_data)
+```
+# Histogram
+
+```{r}
+par(mfrow = c(2,2))
+hist(ori_train_data$unsecured_lines, n = 30, xlab = "unsecured_lines", 
+     main = "Histogram of unsecured_lines")
+hist(ori_train_data$age, n = 30, xlab = "age", 
+     main = "Histogram of age")
+hist(ori_train_data$past_due_30, n = 30, xlab = "past_due_30",
+     main = "Histogram of past_due_30")
+hist(ori_train_data$debt_ratio, n = 50, xlab = "debt_ratio",
+     main = "Histogram of debt_ratio")
+
+hist(ori_train_data$monthly_income, xlab = "monthly_income",
+     main = "Histogram of monthly_income")
+hist(ori_train_data$credit_lines, n = 50, xlab = "credit_lines",
+     main = "Histogram of credit_lines")
+hist(ori_train_data$late_90, n = 50, xlab = "late_90",
+     main = "Histogram of late_90")
+hist(ori_train_data$real_estate, n = 50, xlab = "real_estate",
+     main = "Histogram of real_estate")
+
+
+par(mfrow = c(2,1))
+hist(ori_train_data$past_due_60, n = 50, xlab = "past_due_60",
+     main = "Histogram of past_due_60")
+hist(ori_train_data$num_dependents, n = 50, xlab = "num_dependents",
+     main = "Histogram of num_dependents")
+```
+
+### Boxplots
+```{r, fig.width=22, fig.height=12}
+
+no_missing_income <- ori_train_data[!is.na(ori_train_data$monthly_income),]
+no_missing_dependent <- ori_train_data[!is.na(ori_train_data$num_dependents),]
+
+par(mfrow=c(2,2))
+
+#unsecured_lines
+
+unsecured_lines.y.bp <- c(ori_train_data$unsecured_lines, 
+                          no_missing_dependent$unsecured_lines, 
+                          no_missing_income$unsecured_lines)
+
+unsecured_lines.x.np <- c(rep(1,length(ori_train_data$unsecured_lines)),
+                          rep(2,length(no_missing_dependent$unsecured_lines)),
+                          rep(3,length(no_missing_income$unsecured_lines)))
+
+
+boxplot(unsecured_lines.y.bp ~ unsecured_lines.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5, 
+        ylab = "unsecured_lines", 
+        main = "unsecured_lines boxplots with different datasets")
+
+
+
+
+#AGE
+
+age.y.bp <- c(ori_train_data$age, 
+              no_missing_dependent$age, 
+              no_missing_income$age)
+
+age.x.np <- c(rep(1,length(ori_train_data$age)),
+              rep(2,length(no_missing_dependent$age)),
+              rep(3,length(no_missing_income$age)))
+
+boxplot(age.y.bp ~ age.x.np, col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5, 
+        ylab = "Age", 
+        main = "Age boxplots with different datasets")
+
+
+
+#past_due_30
+
+past_due_30.y.bp <- c(ori_train_data$past_due_30, 
+                      no_missing_dependent$past_due_30, 
+                      no_missing_income$past_due_30)
+
+past_due_30.x.np <- c(rep(1,length(ori_train_data$past_due_30)),
+                      rep(2,length(no_missing_dependent$past_due_30)),
+                      rep(3,length(no_missing_income$past_due_30)))
+
+boxplot(past_due_30.y.bp ~ past_due_30.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5, 
+        ylab = "past_due_30", 
+        main = "past_due_30 boxplots with different datasets")
+
+
+
+#debt_ratio
+
+debt_ratio.y.bp <- c(ori_train_data$debt_ratio, 
+                     no_missing_dependent$debt_ratio, 
+                     no_missing_income$debt_ratio)
+
+debt_ratio.x.np <- c(rep(1,length(ori_train_data$debt_ratio)),
+                     rep(2,length(no_missing_dependent$debt_ratio)),
+                     rep(3,length(no_missing_income$debt_ratio)))
+
+boxplot(debt_ratio.y.bp ~ debt_ratio.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5,
+        ylab = "debt_ratio", 
+        main = "debt_ratio boxplots with different datasets")
+
+
+
+#credit_lines
+
+credit_lines.y.bp <- c(ori_train_data$credit_lines,
+                       no_missing_dependent$credit_lines, 
+                       no_missing_income$credit_lines)
+
+credit_lines.x.np <- c(rep(1,length(ori_train_data$credit_lines)),
+                       rep(2,length(no_missing_dependent$credit_lines)),
+                       rep(3,length(no_missing_income$credit_lines)))
+
+boxplot(credit_lines.y.bp ~ credit_lines.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5,
+        ylab = "credit_lines", 
+        main = "credit_lines boxplots with different datasets")
+
+
+
+#late_90
+
+late_90.y.bp <- c(ori_train_data$late_90, 
+                  no_missing_dependent$late_90, 
+                  no_missing_income$late_90)
+
+late_90.x.np <- c(rep(1,length(ori_train_data$late_90)),
+                  rep(2,length(no_missing_dependent$late_90)),
+                  rep(3,length(no_missing_income$late_90)))
+
+boxplot(late_90.y.bp ~ late_90.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5,
+        ylab = "late_90", 
+        main = "late_90 boxplots with different datasets")
+
+
+
+#real_estate
+
+real_estate.y.bp <- c(ori_train_data$real_estate, 
+                      no_missing_dependent$real_estate, 
+                      no_missing_income$real_estate)
+
+real_estate.x.np <- c(rep(1,length(ori_train_data$real_estate)),
+                      rep(2,length(no_missing_dependent$real_estate)),
+                      rep(3,length(no_missing_income$real_estate)))
+
+boxplot(real_estate.y.bp ~ real_estate.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5,
+        ylab = "real_estate", 
+        main = "real_estate boxplots with different datasets")
+
+
+
+#past_due_60
+
+past_due_60.y.bp <- c(ori_train_data$past_due_60, 
+                      no_missing_dependent$past_due_60, 
+                      no_missing_income$past_due_60)
+
+past_due_60.x.np <- c(rep(1,length(ori_train_data$past_due_60)),
+                      rep(2,length(no_missing_dependent$past_due_60)),
+                      rep(3,length(no_missing_income$past_due_60)))
+
+boxplot(past_due_60.y.bp ~ past_due_60.x.np, 
+        col=c("white","skyblue2","green2"),
+        names=c(" \n All data \n n = 150000","Remove missing dependents \n n = 146076","Remove missing monthly income \n n = 120269"), 
+        pch = 19, boxwex = 0.5, 
+        ylab = "past_due_60", 
+        main = "past_due_60 boxplots with different datasets")
+```
+
+# Exploring outliers and missing values in each variable
+
+## unsecured_lines
+```{r}
+exploration_data <- ori_train_data
+
+#cut unsecured lines into groups
+labs <- c(paste(seq(0, 28, by = 2), seq(0 + 2 - 1, 30 - 1, by = 2),
+                sep = "-"), paste(30, "+", sep = ""))
+
+exploration_data$unsecured_lines_group <- cut(exploration_data$unsecured_line, breaks = c(seq(0, 30, by = 2), Inf), labels = labs, right = FALSE)
+
+unsecured_table<- exploration_data %>%
+  group_by(unsecured_lines_group) %>%
+  summarise(n=n())
+
+# evaluate the table and the trend in unsecured_lines
+unsecured_table
+
+# evaluate proportion of default 
+unsecured_default <- exploration_data %>%
+  dplyr::filter(unsecured_lines >=15) %>%
+  summarise(proportion = mean(default), n = n())
+
+unsecured_default2 <- exploration_data %>%
+  dplyr::filter(unsecured_lines <15) %>%
+  summarise(proportion = mean(default), n = n())
+
+```
+
+## real_estate
+```{r}
+# explore real_estate values
+estate_table <- exploration_data %>%
+  group_by(real_estate) %>%
+  summarise(n = n())
+
+estate_table
+```
+
+## credit_lines
+```{r}
+#cut credit_lines into groups
+labs <- c(paste(seq(0, 45, by = 5), seq(0 + 45 - 1, 50 - 1, by = 5),
+                sep = "-"), paste(50, "+", sep = ""))
+
+exploration_data$credit_lines_group <- cut(exploration_data$credit_lines, breaks = c(seq(0, 50, by = 5), Inf), labels = labs, right = FALSE)
+
+#evaluate credit_lines
+credit_table <- exploration_data %>%
+  group_by(credit_lines_group) %>%
+  summarise(n=n())
+
+credit_table
+```
+
+## debt_ratio
+```{r}
+
+#evaluate proportion of default with dataset containing different percentile 
+debt_table1 <- exploration_data %>%
+  summarise(proportion = mean(default), n = n())
+
+debt_boundary_97 <-  quantile(ori_train_data$debt_ratio, probs = 0.975)
+debt_boundary_95 <-  quantile(ori_train_data$debt_ratio, probs = 0.95)
+
+debt_table2 <- exploration_data %>%
+  dplyr::filter(debt_ratio<= debt_boundary_97) %>%
+  summarise(proportion = mean(default), n = n())
+
+debt_table3 <- exploration_data %>%
+  dplyr::filter(debt_ratio<= debt_boundary_95) %>%
+  summarise(proportion = mean(default), n = n())
+
+#combind result in a table
+debt_table <- rbind(debt_table1, debt_table2, debt_table3)
+debt_table
+```
+
+## late payment
+```{r}
+#explore late payment variables
+late_payment_table <- exploration_data %>%
+  dplyr::filter(past_due_30 >= 90 & past_due_60 >= 90 & late_90 >=90)
+```
+
+
+# Truncation
+
+```{r}
+#truncate late payment
+clean_train_data <- ori_train_data %>%
+  dplyr::filter(past_due_30 < 96 | past_due_60 < 96 | late_90 < 96)
+
+# credit_lines range
+Q1.credit <- quantile(clean_train_data$credit_lines, probs = 0.25)
+Q2.credit <- quantile(clean_train_data$credit_lines, probs = 0.5)
+Q3.credit <- quantile(clean_train_data$credit_lines, probs = 0.75)
+
+upper.cut.credit <- Q2.credit + 3*((Q3.credit - Q1.credit)/(2*0.6745))
+lower.cut.credit <- Q2.credit - 3*((Q3.credit - Q1.credit)/(2*0.6745))
+
+
+# real_estate range
+Q1.estate <- quantile(clean_train_data$real_estate, probs = 0.25)
+Q2.estate <- quantile(clean_train_data$real_estate, probs = 0.5)
+Q3.estate <- quantile(clean_train_data$real_estate, probs = 0.75)
+
+upper.cut.estate <- Q2.estate + 3*((Q3.estate - Q1.estate)/(2*0.6745))
+lower.cut.estate <- Q2.estate - 3*((Q3.estate - Q1.estate)/(2*0.6745))
+
+# age range
+Q1.age <- quantile(clean_train_data$age, probs = 0.25)
+Q2.age <- quantile(clean_train_data$age, probs = 0.5)
+Q3.age <- quantile(clean_train_data$age, probs = 0.75)
+
+upper.cut.age <- Q2.age + 3*((Q3.age - Q1.age)/(2*0.6745))
+lower.cut.age <- Q2.age - 3*((Q3.age - Q1.age)/(2*0.6745))
+
+# debt_ratio range
+upper.cut.debt <-  quantile(clean_train_data$debt_ratio, probs = 0.975)
+
+# monthly_income range
+upper.cut.income <-quantile(clean_train_data$monthly_income, probs = 0.975, na.rm = T)
+
+# num_dependents range
+upper.cut.dependents <-quantile(clean_train_data$num_dependents, probs = 0.975, na.rm = T)
+
+# truncate variables
+
+clean_train_data2 <- clean_train_data %>%
+  dplyr::filter(credit_lines >= lower.cut.credit & credit_lines <= upper.cut.credit) %>%
+  dplyr::filter(real_estate >= lower.cut.estate & real_estate <= upper.cut.estate) %>%
+  dplyr::filter(debt_ratio <= upper.cut.debt) %>%
+  dplyr::filter(monthly_income <= upper.cut.income | is.na(monthly_income)) %>%
+  dplyr::filter(num_dependents <= upper.cut.dependents | is.na(num_dependents)) %>%
+  dplyr::filter(age >= lower.cut.age & age <= upper.cut.age)
+
+# replace unsecured_lines outliers with NA
+clean_train_data2$unsecured_lines[clean_train_data2$unsecured_lines >= 15] <- NA
+
+```
+
+
+
+# Imputation
+
+This part is imputation for the missing values in monthly_income, num_dependents, and unsecured_lines
+```{r}
+
+# make 1 datasets with 5 iterations using predictive mean matching
+
+temp_train_data <- mice(clean_train_data2,m=1,maxit=5,meth='pmm',seed=500)
+
+# complete the dataset
+
+train_complete_data = complete(temp_train_data, action=1)
+```
+
+# Visualising final clean data
+```{r}
+# visualising correlation
+cor_complete_data <- cor(train_complete_data[,1:11])
+
+library(corrplot)
+corrplot(cor_complete_data, method="circle")
+
+
+#histogram
+par(mfrow = c(2,2))
+hist(train_complete_data$unsecured_lines, n = 30, xlab = "unsecured_lines", 
+     main = "Histogram of unsecured_lines")
+hist(train_complete_data$age, n = 30, xlab = "age", 
+     main = "Histogram of age")
+hist(train_complete_data$past_due_30, n = 30, xlab = "past_due_30",
+     main = "Histogram of past_due_30")
+hist(train_complete_data$debt_ratio, n = 50, xlab = "debt_ratio",
+     main = "Histogram of debt_ratio")
+
+hist(train_complete_data$monthly_income, xlab = "monthly_income",
+     main = "Histogram of monthly_income")
+hist(train_complete_data$credit_lines, n = 50, xlab = "credit_lines",
+     main = "Histogram of credit_lines")
+hist(train_complete_data$late_90, n = 50, xlab = "late_90",
+     main = "Histogram of late_90")
+hist(train_complete_data$real_estate, n = 50, xlab = "real_estate",
+     main = "Histogram of real_estate")
+
+par(mfrow = c(2,1))
+hist(train_complete_data$past_due_60, n = 50, xlab = "past_due_60",
+     main = "Histogram of past_due_60")
+hist(train_complete_data$num_dependents, n = 50, xlab = "num_dependents",
+     main = "Histogram of num_dependents")
+
+# basic statistics
+round(basicStats(train_complete_data),3)
+```
+
+# Information value
+https://www.r-bloggers.com/woe-and-iv-variable-screening-with-information-in-r/
+```{r}
+infoTables <- create_infotables(data = train_complete_data,
+
+                               y = "default",
+                              bins = 10,
+                              parallel = T)
+
+# – Plot IV
+
+plotFrame <- infoTables$Summary[order(-infoTables$Summary$IV), ]
+plotFrame$Variable <- factor(plotFrame$Variable,
+
+                            levels = plotFrame$Variable[order(-plotFrame$IV)])
+
+ggplot(plotFrame, aes(x = Variable, y = IV)) +
+geom_bar(width = .35, stat = "identity") +
+ggtitle("Information value of each variable") +
+theme_bw() +
+theme(plot.title = element_text(size = 10)) +
+theme(axis.text.x = element_text(angle = 90))
+
+plotFrame$Variable
+plotFrame$IV
+```
+
+# Splitting into training and test data
+```{r}
+
+# creates a value for dividing the data into train and test. 
+# The training value is defined as 75% of the dataset
+
+sample.size = floor(0.75*nrow(train_complete_data))  
+
+set.seed(1003)   # set seed to ensure having same random numbers generated
+
+
+# Randomly identifies the rows equal to sample size from  all the rows of AutoPart dataset and stores the row number in train_ind
+
+train_ind = sample(seq_len(nrow(train_complete_data)),size = sample.size)  
+
+final_train_data = train_complete_data[train_ind,] #creates the training dataset with row numbers in train_ind
+final_test_data = train_complete_data[-train_ind,]  # creates the test dataset excluding the row numbers in train_ind
+```
+
+# Model fit
+
+## Logistic Regression
+https://cran.r-project.org/web/packages/dominanceanalysis/vignettes/da-logistic-regression.html
+```{r}
+
+library(dominanceanalysis)
+
+glm_fit <- glm(default~., data=final_train_data, family=binomial(link='logit'))
+
+# predict
+glm_prob <- predict(glm_fit, final_test_data, type="response")
+glm_pred <- ifelse(glm_prob > 0.5, 1, 0)
+
+glm_CM <- table(glm_pred, final_test_data$default)
+glm_accuracy <- 1- mean(glm_pred != final_test_data$default)
+
+glm_rmse <- rmse(as.numeric(final_test_data$default), as.numeric(glm_pred))
+
+```
+
+## LDA
+```{r}
+
+LDA_fit <- lda(default~., data = final_train_data)
+
+# prediction and confusion table
+
+LDA_pred <- predict(LDA_fit, final_test_data)
+
+LDA_CM <- table(LDA_pred$class, final_test_data$default)
+LDA_accuracy <- 1- mean(LDA_pred$class != final_test_data$default)  # error rate
+
+
+LDA_rmse <- rmse(final_test_data$default, as.numeric(LDA_pred$class))
+```
+
+## QDA
+```{r}
+QDA_fit <- qda(default~., data = final_train_data)
+
+
+# prediction and confusion table
+
+QDA_pred <- predict(QDA_fit, final_test_data)
+
+QDA_CM <- table(QDA_pred$class, final_test_data$default)
+QDA_accuracy <- 1 - mean(QDA_pred$class != final_test_data$default)  # error rate
+
+QDA_rmse <- rmse(final_test_data$default, as.numeric(QDA_pred$class))
+```
+
+## LASSO
+```{r}
+
+library(glmnet)
+library(caret)
+
+x.train <- model.matrix(default~., final_train_data)[,-1]
+y.train <- final_train_data$default
+
+x.test <- model.matrix(default~., final_test_data)[,-1]
+y.test <- final_test_data$default
+
+cv.lasso <- cv.glmnet(x.train, y.train, alpha = 1, type.measure = "mae")
+plot(cv.lasso)
+
+lasso.best.lam =cv.lasso$lambda.min
+lasso.best.lam
+
+lasso.model <- glmnet(x.train, y.train, alpha = 1, family = "binomial")
+lasso.coef <- coef(lasso.model,s=lasso.best.lam)[,1]
+
+
+lasso.prob <- predict(lasso.model, newx = x.test, s = lasso.best.lam)
+lasso.pred <- ifelse(lasso.prob > 0.5, 1, 0)
+
+(lasso_info2 <- postResample(lasso.pred, y.test))
+
+
+
+lasso_CM <- table(lasso.pred, final_test_data$default)
+lasso_accuracy <- mean(lasso.pred == final_test_data$default)
+
+lasso_rmse <- rmse(final_test_data$default, lasso.pred)
+```
+
+## Random forest 
+https://www.blopig.com/blog/2017/04/a-very-basic-introduction-to-random-forests-using-r/
+https://www.listendata.com/2014/11/random-forest-with-r.html#Preparing-Data-for-Random-Forest
+
+```{r}
+
+#import the package
+library(randomForest)
+
+final_train_data$default <- as.factor(final_train_data$default)
+final_test_data$default <- as.factor(final_test_data$default)
+
+# Perform training:
+rf_fit = randomForest(default ~ ., data = final_train_data, 
+                             ntree=100, mtry=2, importance=TRUE)
+
+# Validation set assessment #1: looking at confusion matrix
+
+rf_pred <- predict(rf_fit, final_test_data, type = "class")
+
+
+# Checking classification accuracy
+rf_accuracy <- mean(rf_pred == final_test_data$default)                    
+rf_CM <- table(rf_pred,final_test_data$default)
+
+
+rf_rmse <- rmse(as.numeric(final_test_data$default), as.numeric(rf_pred))
+```
+
+##Decision tree
+
+https://stats.stackexchange.com/questions/105760/how-we-can-draw-an-roc-curve-for-decision-trees
+
+https://medium.com/analytics-vidhya/a-guide-to-machine-learning-in-r-for-beginners-decision-trees-c24dfd490abb#:~:text=A%20Decision%20Tree%20is%20a,(Classification%20%26%20Regression%20Trees).
+
+https://www.datacamp.com/community/tutorials/decision-trees-R
+
+```{r}
+
+library(tree)
+
+tree_fit <- tree(default~., data = final_train_data)
+tree_pred <- predict(tree_fit, final_test_data, type = "class")
+
+
+tree_CM <- table(tree_pred, final_test_data$default)
+tree_accuracy <- mean(tree_pred == final_test_data$default) 
+
+tree_rmse <-rmse(as.numeric(final_test_data$default), as.numeric(tree_pred))
+```
+
+
+## Neural Network
+
+https://machinelearningmastery.com/non-linear-classification-in-r/
+```{r}
+library(nnet)
+
+final_train_data$default <- as.factor(final_train_data$default)
+final_test_data$default <- as.factor(final_test_data$default)
+
+
+# fit model
+NN_fit <- nnet(default~., data=final_train_data, size=10, decay=0.0001, maxit=500)
+
+# summarize the fit
+summary(NN_fit)
+
+# make predictions
+NN_pred <- predict(NN_fit, final_test_data, type="class")
+
+# summarize accuracy
+NN_CM <- table(NN_pred, final_test_data$default)
+
+NN_accuracy <- mean(NN_pred == final_test_data$default) 
+
+NN_rmse <-rmse(as.numeric(final_test_data$default), as.numeric(NN_pred))
+
+```
+
+
+
+## XGBoost
+https://cran.r-project.org/web/packages/xgboost/vignettes/xgboostPresentation.html#measure-learning-progress-with-xgb.train
+
+```{r}
+
+library(xgboost)
+library(ROCR)
+
+gbm_train <- final_train_data
+
+xgb_train_data <- xgb.DMatrix(data = as.matrix(final_train_data[,-1])
+                      ,label = as.numeric(final_train_data$default)-1)
+
+xgb_test_data <- xgb.DMatrix(data = as.matrix(final_test_data[,-1])
+                    , label = as.numeric(final_test_data$default)-1)ef
+
+watchlist <- list(train=xgb_train_data, test=xgb_test_data)
+
+xgb_fit <- xgb.train(data=xgb_train_data, max.depth=3
+                 , eta=0.01, nthread = 2, nround=2000
+                 , watchlist=watchlist, eval.metric = "error"
+                 , eval.metric = "logloss"
+                 , objective = "binary:logistic")
+
+print(xgb.importance(model = xgb_fit))
+
+#plot importance
+xgb.plot.importance(importance_matrix = xgb.importance(model = xgb_fit), 
+                    xlab = "Relative importance (percentage)",
+                    main = "Importance")
+
+#model prediction
+xgb_prob <- predict(xgb_fit,xgb_test_data)
+xgb_pred <- ifelse(xgb_prob > 0.5, 1, 0)
+
+# summarize accuracy
+xgb_CM <- table(xgb_pred, final_test_data$default)
+
+xgb_accuracy <- mean(xgb_pred == final_test_data$default)
+
+
+#rmse
+
+XGB_rmse <-rmse(as.numeric(final_test_data$default), as.numeric(xgb_pred))
+
+```
+
+# Creating table of accuracy
+```{r}
+accuracy_table <- data.frame(
+  glm_accuracy = glm_accuracy,
+  LDA_accuracy = LDA_accuracy,
+  QDA_accuracy = QDA_accuracy,
+  lasso_accuracy = lasso_accuracy,
+  rf_accuracy = rf_accuracy,
+  tree_accuracy = tree_accuracy,
+  NN_accuracy = NN_accuracy,
+  xgb_accuracy = xgb_accuracy
+)
+
+
+```
+
+# Creating table of RMSE
+```{r}
+RMSE_table <- data.frame(
+  glm_rmse = glm_rmse,
+  LDA_rmse = LDA_rmse,
+  QDA_rmse = QDA_rmse,
+  lasso_rmse = lasso_rmse,
+  rf_rmse = rf_rmse,
+  tree_rmse = tree_rmse,
+  NN_rmse = NN_rmse,
+  XGB_rmse = XGB_rmse
+)
+
+RMSE_table
+```
+
+# All the confusion matrix
+```{r}
+glm_CM
+LDA_CM
+QDA_CM
+lasso_CM
+
+rf_CM
+tree_CM
+NN_CM
+xgb_CM
+```
+
+# Calculating AUC
+```{r}
+# Logistic regression AUC
+glm_auc <- prediction(glm_prob, final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+
+# LDA AUC
+LDA_auc <- prediction(LDA_pred$posterior[,2], final_test_data$default) %>% 
+  performance(measure = "auc") %>%
+  .@y.values
+
+# QDA AUC
+QDA_auc <- prediction(QDA_pred$posterior[,2], final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+
+# Lasso auc
+lasso_auc <- prediction(lasso.pred, final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+
+# Random forest AUC
+rf_auc <- prediction(as.numeric(rf_pred), final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+
+# Decision tree AUC
+tree_auc <- prediction(as.numeric(tree_pred), final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+
+# Neural network AUC
+NN_auc <- prediction(as.numeric(NN_pred), final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+
+# xbg auc
+xgb_auc <- prediction(xgb_pred, final_test_data$default) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+```
+
+# Creating table of AUC
+```{r}
+AUC_table <- data.frame(
+  glm_auc = glm_auc[[1]],
+  LDA_auc = LDA_auc[[1]],
+  QDA_auc = QDA_auc[[1]], 
+  lasso_auc = lasso_auc[[1]], 
+  rf_auc = rf_auc[[1]], 
+  tree_auc = tree_auc[[1]], 
+  NN_auc = NN_auc[[1]], 
+  xgb_auc = xgb_auc[[1]]
+)
+
+AUC_table
+```
+
+
+# Importance plot for glm and VIF
+```{r}
+
+dapres<-dominanceAnalysis(glm_fit)
+
+# plot for importance
+plot(dapres, which.graph ="general",fit.function = "r2.m")
+anova(glm_fit, test="Chisq")
+
+#robustness
+plot(glm_fit)
+
+car::vif(glm_fit)
+```
+
+# Final model result
+
+```{r}
+round(summary(glm_fit)$coefficients,3)
+round(anova(glm_fit, test="Chisq"),3)
+```
+
