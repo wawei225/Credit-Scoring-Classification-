@@ -17,13 +17,13 @@ List of models used in analysis (classification):
 
 ### Content
 1. Exploratory Data Analysis
-* Missing value
-1.2 Histogram 
-1.3 Boxplot
-1.4 Correlation
+  * Missing value
+  * Histogram 
+  * Boxplot
+  * Correlation
 2. Data Processing
-2.1 Outlier Treatment
-2.2 Imputation with predictive mean matching 
+  * Outlier Treatment
+  * Imputation with predictive mean matching 
 3. Building and Selecting the Model
-5. Performance of Model
+4. Performance of Model
 <br>
