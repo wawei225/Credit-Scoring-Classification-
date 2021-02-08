@@ -1,6 +1,3 @@
-# Credit fraud detection with data mining 
-This repository is based on a project for an MSc course
-
 ## Credit fraud detection model
 
 This project is a part of MSc Course: Credit Scoring and Data Mining from University of Southampton.
@@ -20,7 +17,7 @@ List of models used in analysis (classification):
 
 ### Content
 1. Exploratory Data Analysis
-1.1 Missing value
+* Missing value
 1.2 Histogram 
 1.3 Boxplot
 1.4 Correlation
