@@ -27,3 +27,5 @@ List of models used in analysis (classification):
 3. Building and Selecting the Model
 4. Performance of Model
 <br>
+
+![alt text](https://github.com/wawei225/Credit-Scoring-Classification-/blob/main/glm_dominance.png?raw=true)
